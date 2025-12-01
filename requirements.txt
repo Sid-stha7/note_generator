@@ -1,6 +1,6 @@
 annotated-doc==0.0.4
 annotated-types==0.7.0
-anyio==3.7.1
+anyio==4.11.0
 appdirs==1.4.4
 asgiref==3.10.0
 attrs==25.4.0
@@ -10,10 +10,10 @@ click==8.3.0
 coreapi==2.3.3
 coreschema==0.0.4
 distro==1.9.0
-Django==4.2.8
+Django==4.0
 django-cors-headers==4.3.1
 django-rest-swagger==2.2.0
-djangorestframework==3.14.0
+djangorestframework==3.13.1
 dnspython==2.8.0
 drf-spectacular==0.26.5
 drf-yasg==1.21.11
@@ -37,7 +37,7 @@ legacy-cgi==2.6.4
 markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 mdurl==0.1.2
-openai==2.8.1
+openai==2.7.1
 openapi-codec==1.3.2
 packaging==25.0
 perplexity-client==0.1.1
@@ -46,7 +46,8 @@ prompt_toolkit==3.0.52
 pydantic==2.12.4
 pydantic_core==2.41.5
 Pygments==2.19.2
-python-dotenv==1.0.0
+pypdf==6.4.0
+python-dotenv==1.2.1
 python-multipart==0.0.20
 pytz==2025.2
 PyYAML==6.0.3
