@@ -162,5 +162,5 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-PERPLEXITY_API_KEY = ('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')
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 PERPLEXITY_MODEL = os.getenv('PERPLEXITY_MODEL', 'sonar-pro')
