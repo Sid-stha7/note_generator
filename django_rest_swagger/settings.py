@@ -20,7 +20,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-as0cv^51w32da3je(kb6w+za1oi$i9gg=u%s3ejip3#6je!p*u'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -162,4 +161,5 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 PERPLEXITY_MODEL = os.getenv('PERPLEXITY_MODEL', 'sonar-pro')
