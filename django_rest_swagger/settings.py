@@ -41,7 +41,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'drf_spectacular',
     'corsheaders',
-
+    'drf_yasg',
     # Local app
     'app',
 ]
@@ -162,3 +162,4 @@ from dotenv import load_dotenv
 load_dotenv()
 
 PERPLEXITY_MODEL = os.getenv('PERPLEXITY_MODEL', 'sonar-pro')
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-dev-key-change-this-later')
