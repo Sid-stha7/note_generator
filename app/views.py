@@ -90,3 +90,39 @@ class AnalyzeFileView(APIView):
             return Response({"analysis": completion.choices[0].message.content})
         except Exception as e:
             return Response({"error": f"API Error: {str(e)}"}, status=500)
+
+
+class VoiceChatView(APIView):
+    """
+    Backend endpoint for voice mode.
+    Expects JSON: { "messages": [ { "role": "user", "content": "..." }, ... ] }
+    """
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'messages': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Items(type=openapi.TYPE_OBJECT)
+                )
+            },
+            required=['messages']
+        )
+    )
+    def post(self, request):
+        messages = request.data.get('messages')
+        if not messages:
+            return Response({'error': 'Please provide "messages" array'}, status=400)
+
+        try:
+            completion = client.chat.completions.create(
+                model="sonar-pro",  # or another supported chat model[web:8]
+                messages=messages
+            )
+            msg = completion.choices[0].message
+            return Response({
+                "role": msg.role,
+                "content": msg.content
+            })
+        except Exception as e:
+            return Response({"error": f"API Error: {str(e)}"}, status=500)

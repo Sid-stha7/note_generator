@@ -11,4 +11,5 @@ urlpatterns = [
     #Custom APIView URLs (for the PDF logic)
     path('upload/', UploadFileView.as_view(), name='upload-file'),
     path('analyze/', AnalyzeFileView.as_view(), name='analyze-file'),
+    path("voice-chat/", VoiceChatView.as_view(), name="voice-chat"),
 ]

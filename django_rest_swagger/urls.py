@@ -4,7 +4,7 @@ from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 
-from app.views import UploadFileView, AnalyzeFileView  # Your views
+from app.views import UploadFileView, AnalyzeFileView ,VoiceChatView # Your views
 
 # 1. Define the Swagger Info
 schema_view = get_schema_view(
@@ -20,7 +20,7 @@ schema_view = get_schema_view(
 urlpatterns = [
   path('upload/', UploadFileView.as_view(), name='upload-file'),
     path('analyze/', AnalyzeFileView.as_view(), name='analyze-file'),
-
+    path("voice-chat/", VoiceChatView.as_view(), name="voice-chat"),
     # Swagger URLs
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
