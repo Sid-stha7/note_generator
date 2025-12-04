@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  # The Django Application Service
+  web:
+    build: . # Build using the Dockerfile in the current directory
+    command: python manage.py runserver 0.0.0.0:8000 # Use the development server command
+    volumes:
+      # Map your local project code to the container. 
+      # This allows changes in your IDE to reflect instantly in the container.
+      - .:/usr/src/app 
+    ports:
+      # Map port 8000 on your host machine to port 8000 in the container
+      - "8000:8000"
+    # Note: env_file and depends_on are removed since there is no DB

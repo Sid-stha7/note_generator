@@ -81,9 +81,9 @@ class AnalyzeFileView(APIView):
 
         try:
             completion = client.chat.completions.create(
-                model="sonar-pro",
+                model="sonar",
                 messages=[
-                    {"role": "system", "content": "Analyze this text."},
+                    {"role": "system", "content": "With this document slide generate a short summary , highlight the important topic and give me note with real world example if applicable for effective learning , also recommend the topic related to it including the links , generate the response in html format."},
                     {"role": "user", "content": pdf_text}
                 ]
             )
