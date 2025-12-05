@@ -1,5 +1,5 @@
 import os
-import base64
+import re  # Added for stripping markdown
 from concurrent.futures import ThreadPoolExecutor
 from django.conf import settings
 from rest_framework.views import APIView
@@ -13,7 +13,7 @@ from drf_yasg import openapi
 # Initialize Client
 client = OpenAI(
     api_key=os.getenv("PERPLEXITY_API_KEY"),
-    base_url="https://api.perplexity.ai"
+    base_url="[https://api.perplexity.ai](https://api.perplexity.ai)"
 )
 
 # Helper: Define where files get saved
@@ -23,6 +23,19 @@ if not os.path.exists(UPLOAD_DIR):
 
 
 # --- HELPERS FOR MAP-REDUCE ---
+
+def clean_ai_response(text):
+    """
+    Removes Markdown code blocks (```html ... ```) and conversational filler
+    to ensure only the raw string remains.
+    """
+    # Remove opening ```html or ```
+    text = re.sub(r'^```(html)?\s*', '', text, flags=re.IGNORECASE)
+    # Remove closing ```
+    text = re.sub(r'\s*```$', '', text)
+    # Remove common chatty prefixes if they appear at the very start
+    text = re.sub(r'^(Here is|Sure|Certainly|I have generated).*?:\n', '', text, flags=re.IGNORECASE | re.DOTALL)
+    return text.strip()
 
 def split_text(text, chunk_size=3000, overlap=200):
     """Splits long text into overlapping chunks."""
@@ -49,64 +62,74 @@ def split_text(text, chunk_size=3000, overlap=200):
     return chunks
 
 def summarize_chunk(chunk_text):
-    """MAP STEP: Summarize a specific chunk of text."""
+    """
+    MAP STEP: Extract detailed notes.
+    CHANGED: Moved from 'summarize concisely' to 'detailed extraction' 
+    to prevent data loss before the final step.
+    """
     try:
         completion = client.chat.completions.create(
             model="sonar", 
             messages=[
-                {"role": "system", "content": "You are a helpful study assistant. Summarize the following text, capturing key topics and definitions concisely."},
+                {"role": "system", "content": "You are a data extractor. Extract all technical definitions, specific numbers, code snippets, and key arguments from the text. Do not summarize; maintain detail."},
                 {"role": "user", "content": chunk_text}
             ]
         )
         return completion.choices[0].message.content
     except Exception as e:
-        print(f"Error summarizing chunk: {e}")
+        print(f"Error processing chunk: {e}")
         return ""
 
 def generate_final_summary(combined_summaries):
     """
     REDUCE STEP: Create the detailed HTML document.
-    UPDATED: Now requests distinct sections for Related Topics with hyperlinks and inline CSS.
+    CHANGED: stricter system prompt to ban conversational filler.
     """
     try:
         completion = client.chat.completions.create(
             model="sonar-pro", 
             messages=[
                 {"role": "system", "content": """
-                    You are an intelligent backend API that generates rich HTML content. 
-                    1. Output ONLY valid HTML code. 
-                    2. Do not use Markdown code blocks (```). 
-                    3. Do not include conversational filler ("Here is the HTML").
-                    4. Use Inline CSS to style the elements beautifully (modern, clean design).
+                    You are a Documentation Engine. 
+                    1. Output ONLY raw HTML code. 
+                    2. STRICTLY FORBIDDEN: Do not use Markdown code blocks (```). 
+                    3. STRICTLY FORBIDDEN: Do not add conversational text like "Here is the HTML".
+                    4. Content must be comprehensive, detailed, and professional.
+                    5. Use Inline CSS for a professional 'ReadTheDocs' style (fonts: sans-serif, clean borders).
                 """},
                 {"role": "user", "content": f"""
-                Here are the collected notes from a uploaded document:
+                Source Data:
                 {combined_summaries}
                 
                 ---
                 
                 **Task:**
-                Generate a comprehensive, structured Study Guide HTML document based on these notes.
+                Convert the source data into a full technical documentation page.
                 
-                **Formatting Requirements:**
-                1. **Main Content:** Use `<h2>` for major sections and `<ul>`/`<li>` for details. Use `<strong>` for key terms.
-                2. **Style:** Apply inline CSS. e.g., `<h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">`.
-                3. **Key Concepts:** Wrap vital definitions in a styled `<div>` box (e.g., light gray background, left border).
+                **Structure Requirements:**
+                1. **Title:** Use <h1 style="color: #2c3e50; text-align:center;">
+                2. **Sections:** Group content logically. Use <h2 style="border-bottom: 2px solid #eaecef; padding-bottom: 0.3em;">.
+                3. **Details:** Do not use short bullet points. Use full sentences and detailed explanations.
+                4. **Callouts:** Wrap warnings or key notes in <div style="background-color: #f8f9fa; border-left: 4px solid #007bff; padding: 15px; margin: 15px 0;">.
                 
-                **REQUIRED NEW SECTIONS (At the bottom):**
+                **REQUIRED FOOTER SECTIONS:**
                 
-                4. **Recommended Further Study:** - Suggest 3 specific sub-topics the user should learn next to master this subject.
-                   - Present these as a list.
+                5. **Deep Dive (Next Steps):**
+                   - List 3 advanced sub-topics for mastery.
                 
-                5. **Related Resources & Links:**
-                   - Identify 3-5 external concepts mentioned or related to the text.
-                   - Search your knowledge base to find relevant, high-quality external links (Documentation, Wikipedia, or Educational resources).
-                   - **CRITICAL:** Output actual HTML hyperlinks: `<a href="URL" target="_blank" style="color: #2980b9; text-decoration: none; font-weight: bold;">Link Title</a>`.
-                   - Format this section using a "Card" look (div with border, padding, and slight shadow).
+                6. **External References:**
+                   - Find 3-5 relevant documentation links based on the topics.
+                   - Format: <div style="border:1px solid #ddd; padding:10px; border-radius:5px; margin-top:10px;">
+                   - Link Format: <a href="URL" target="_blank" style="color: #0366d6; font-weight:bold;">Topic Name</a>
                 """}
             ]
         )
-        return completion.choices[0].message.content
+        
+        # Clean the response to ensure no chatty markdown remains
+        raw_content = completion.choices[0].message.content
+        clean_html = clean_ai_response(raw_content)
+        return clean_html
+
     except Exception as e:
         raise e
 
@@ -218,10 +241,20 @@ class VoiceChatView(APIView):
         messages = request.data.get('messages')
         if not messages:
             return Response({'error': 'Please provide "messages" array'}, status=400)
+        
+        # Enforce non-chatty system instruction if not present
+        system_instruction = {
+            "role": "system", 
+            "content": "Provide direct, comprehensive answers. Do not use conversational fillers like 'I can help with that'. Go straight to the information."
+        }
+        
+        # Insert system prompt at the start if it doesn't exist
+        if messages[0].get('role') != 'system':
+            messages.insert(0, system_instruction)
 
         try:
             completion = client.chat.completions.create(
-                model="sonar", 
+                model="sonar-pro", 
                 messages=messages
             )
             msg = completion.choices[0].message
