@@ -221,7 +221,7 @@ class VoiceChatView(APIView):
 
         try:
             completion = client.chat.completions.create(
-                model="sonar", 
+                model="sonar-pro", 
                 messages=messages
             )
             msg = completion.choices[0].message
