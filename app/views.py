@@ -1,6 +1,6 @@
 import os
 import base64
-from concurrent.futures import ThreadPoolExecutor  # <--- NEW: For parallel processing
+from concurrent.futures import ThreadPoolExecutor
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -22,7 +22,7 @@ if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
 
-# --- NEW HELPER FUNCTIONS FOR MAP-REDUCE ---
+# --- HELPERS FOR MAP-REDUCE ---
 
 def split_text(text, chunk_size=3000, overlap=200):
     """Splits long text into overlapping chunks."""
@@ -33,8 +33,7 @@ def split_text(text, chunk_size=3000, overlap=200):
     while start < text_len:
         end = start + chunk_size
         if end < text_len:
-            # Try to find the last period or newline to break cleanly
-            # Look back from 'end' up to 500 chars to find a sentence break
+            # Look back to find a clean sentence break
             break_point = -1
             for i in range(end, max(start, end - 500), -1):
                 if text[i] in ['.', '\n']:
@@ -45,7 +44,7 @@ def split_text(text, chunk_size=3000, overlap=200):
                 end = break_point
         
         chunks.append(text[start:end])
-        start = end - overlap # Overlap to maintain context
+        start = end - overlap 
         
     return chunks
 
@@ -65,23 +64,45 @@ def summarize_chunk(chunk_text):
         return ""
 
 def generate_final_summary(combined_summaries):
-    """REDUCE STEP: Create the final detailed HTML document from the chunk summaries."""
+    """
+    REDUCE STEP: Create the detailed HTML document.
+    UPDATED: Now requests distinct sections for Related Topics with hyperlinks and inline CSS.
+    """
     try:
         completion = client.chat.completions.create(
             model="sonar-pro", 
             messages=[
-                # UPDATED SYSTEM PROMPT: Enforces strict HTML output
-                {"role": "system", "content": "You are a backend API that generates HTML. Output ONLY valid HTML code. Do not encompass it in markdown code blocks (```). Do not output any conversational text, introductions, or explanations. Start your response immediately with <h1>."},
+                {"role": "system", "content": """
+                    You are an intelligent backend API that generates rich HTML content. 
+                    1. Output ONLY valid HTML code. 
+                    2. Do not use Markdown code blocks (```). 
+                    3. Do not include conversational filler ("Here is the HTML").
+                    4. Use Inline CSS to style the elements beautifully (modern, clean design).
+                """},
                 {"role": "user", "content": f"""
-                Here are the collected notes from the document:
+                Here are the collected notes from a uploaded document:
                 {combined_summaries}
                 
-                Task:
-                1. Generate a comprehensive study guide based *only* on these notes.
-                2. Highlight important topics using <strong> or <em> tags.
-                3. Structure the document clearly with <h2>, <h3>, and <ul> tags.
-                4. Real-world examples are encouraged if relevant.
-                5. STRICT FORMATTING: Your entire response must be raw HTML. Do not say "Here is the document". Just output the HTML.
+                ---
+                
+                **Task:**
+                Generate a comprehensive, structured Study Guide HTML document based on these notes.
+                
+                **Formatting Requirements:**
+                1. **Main Content:** Use `<h2>` for major sections and `<ul>`/`<li>` for details. Use `<strong>` for key terms.
+                2. **Style:** Apply inline CSS. e.g., `<h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">`.
+                3. **Key Concepts:** Wrap vital definitions in a styled `<div>` box (e.g., light gray background, left border).
+                
+                **REQUIRED NEW SECTIONS (At the bottom):**
+                
+                4. **Recommended Further Study:** - Suggest 3 specific sub-topics the user should learn next to master this subject.
+                   - Present these as a list.
+                
+                5. **Related Resources & Links:**
+                   - Identify 3-5 external concepts mentioned or related to the text.
+                   - Search your knowledge base to find relevant, high-quality external links (Documentation, Wikipedia, or Educational resources).
+                   - **CRITICAL:** Output actual HTML hyperlinks: `<a href="URL" target="_blank" style="color: #2980b9; text-decoration: none; font-weight: bold;">Link Title</a>`.
+                   - Format this section using a "Card" look (div with border, padding, and slight shadow).
                 """}
             ]
         )
@@ -156,31 +177,22 @@ class AnalyzeFileView(APIView):
             return Response({"error": f"PDF Read Error: {str(e)}"}, status=500)
 
         # 2. Check Length & Decide Strategy
-        # If text is short (< 3000 chars), just do standard processing
-        if len(full_text) < 3000:
-            try:
-                final_html = generate_final_summary(full_text)
-                return Response({"analysis": final_html})
-            except Exception as e:
-                return Response({"error": f"API Error: {str(e)}"}, status=500)
-
-        # 3. Map-Reduce Strategy for Long Texts
         try:
-            # A. Split into chunks
-            chunks = split_text(full_text, chunk_size=3000, overlap=200)
-            
-            # B. Map Phase (Parallel Summarization)
-            # Use ThreadPoolExecutor to make multiple API calls at once
-            mini_summaries = []
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                results = executor.map(summarize_chunk, chunks)
-                mini_summaries = list(results)
-            
-            # Combine mini summaries into one string
-            combined_notes = "\n\n".join(filter(None, mini_summaries))
-            
-            # C. Reduce Phase (Final Generation)
-            final_html = generate_final_summary(combined_notes)
+            if len(full_text) < 3000:
+                # Direct processing for short docs
+                final_html = generate_final_summary(full_text)
+            else:
+                # Map-Reduce for long docs
+                chunks = split_text(full_text, chunk_size=3000, overlap=200)
+                
+                # Map Phase (Parallel)
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    mini_summaries = list(executor.map(summarize_chunk, chunks))
+                
+                combined_notes = "\n\n".join(filter(None, mini_summaries))
+                
+                # Reduce Phase
+                final_html = generate_final_summary(combined_notes)
             
             return Response({"analysis": final_html})
 
@@ -189,10 +201,7 @@ class AnalyzeFileView(APIView):
 
 
 class VoiceChatView(APIView):
-    """
-    Backend endpoint for voice mode.
-    Expects JSON: { "messages": [ { "role": "user", "content": "..." }, ... ] }
-    """
+    """Backend endpoint for voice mode."""
     @swagger_auto_schema(
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
