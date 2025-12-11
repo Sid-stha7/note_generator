@@ -1,8 +1,7 @@
 import os
 import base64
-from concurrent.futures import ThreadPoolExecutor
 from django.conf import settings
-from rest_framework.views import APIView
+from rest_framework.views import APIView  # <--- THIS WAS MISSING
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from openai import OpenAI
@@ -20,98 +19,6 @@ client = OpenAI(
 UPLOAD_DIR = os.path.join(settings.BASE_DIR, 'uploads')
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
-
-
-# --- HELPERS FOR MAP-REDUCE ---
-
-def split_text(text, chunk_size=3000, overlap=200):
-    """Splits long text into overlapping chunks."""
-    chunks = []
-    start = 0
-    text_len = len(text)
-    
-    while start < text_len:
-        end = start + chunk_size
-        if end < text_len:
-            # Look back to find a clean sentence break
-            break_point = -1
-            for i in range(end, max(start, end - 500), -1):
-                if text[i] in ['.', '\n']:
-                    break_point = i + 1
-                    break
-            
-            if break_point != -1:
-                end = break_point
-        
-        chunks.append(text[start:end])
-        start = end - overlap 
-        
-    return chunks
-
-def summarize_chunk(chunk_text):
-    """MAP STEP: Summarize a specific chunk of text."""
-    try:
-        completion = client.chat.completions.create(
-            model="sonar", 
-            messages=[
-                {"role": "system", "content": "You are a helpful study assistant. Summarize the following text, capturing key topics and definitions concisely."},
-                {"role": "user", "content": chunk_text}
-            ]
-        )
-        return completion.choices[0].message.content
-    except Exception as e:
-        print(f"Error summarizing chunk: {e}")
-        return ""
-
-def generate_final_summary(combined_summaries):
-    """
-    REDUCE STEP: Create the detailed HTML document.
-    UPDATED: Now requests distinct sections for Related Topics with hyperlinks and inline CSS.
-    """
-    try:
-        completion = client.chat.completions.create(
-            model="sonar-pro", 
-            messages=[
-                {"role": "system", "content": """
-                    You are an intelligent backend API that generates rich HTML content. 
-                    1. Output ONLY valid HTML code. 
-                    2. Do not use Markdown code blocks (```). 
-                    3. Do not include conversational filler ("Here is the HTML").
-                    4. Use Inline CSS to style the elements beautifully (modern, clean design).
-                """},
-                {"role": "user", "content": f"""
-                Here are the collected notes from a uploaded document:
-                {combined_summaries}
-                
-                ---
-                
-                **Task:**
-                Generate a comprehensive, structured Study Guide HTML document based on these notes.
-                
-                **Formatting Requirements:**
-                1. **Main Content:** Use `<h2>` for major sections and `<ul>`/`<li>` for details. Use `<strong>` for key terms.
-                2. **Style:** Apply inline CSS. e.g., `<h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">`.
-                3. **Key Concepts:** Wrap vital definitions in a styled `<div>` box (e.g., light gray background, left border).
-                
-                **REQUIRED NEW SECTIONS (At the bottom):**
-                
-                4. **Recommended Further Study:** - Suggest 3 specific sub-topics the user should learn next to master this subject.
-                   - Present these as a list.
-                
-                5. **Related Resources & Links:**
-                   - Identify 3-5 external concepts mentioned or related to the text.
-                   - Search your knowledge base to find relevant, high-quality external links (Documentation, Wikipedia, or Educational resources).
-                   - **CRITICAL:** Output actual HTML hyperlinks: `<a href="URL" target="_blank" style="color: #2980b9; text-decoration: none; font-weight: bold;">Link Title</a>`.
-                   - Format this section using a "Card" look (div with border, padding, and slight shadow).
-                """}
-            ]
-        )
-        return completion.choices[0].message.content
-    except Exception as e:
-        raise e
-
-# --- END HELPERS ---
-
 
 class UploadFileView(APIView):
     """Step 1: Upload the file and get the filename"""
@@ -146,9 +53,8 @@ class UploadFileView(APIView):
             'path': file_path
         })
 
-
 class AnalyzeFileView(APIView):
-    """Step 2: Send filename to analyze (Handles Long PDFs)"""
+    """Step 2: Send filename to analyze"""
     @swagger_auto_schema(
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
@@ -165,43 +71,32 @@ class AnalyzeFileView(APIView):
         if not os.path.exists(file_path):
             return Response({"error": f"File '{filename}' not found"}, status=404)
 
-        # 1. Extract Text
         try:
             reader = PdfReader(file_path)
-            full_text = ""
+            pdf_text = ""
             for page in reader.pages:
-                text = page.extract_text()
-                if text:
-                    full_text += text + "\n"
+                pdf_text += page.extract_text() + "\n"
         except Exception as e:
-            return Response({"error": f"PDF Read Error: {str(e)}"}, status=500)
+            return Response({"error": f"PDF Error: {str(e)}"}, status=500)
 
-        # 2. Check Length & Decide Strategy
         try:
-            if len(full_text) < 3000:
-                # Direct processing for short docs
-                final_html = generate_final_summary(full_text)
-            else:
-                # Map-Reduce for long docs
-                chunks = split_text(full_text, chunk_size=3000, overlap=200)
-                
-                # Map Phase (Parallel)
-                with ThreadPoolExecutor(max_workers=5) as executor:
-                    mini_summaries = list(executor.map(summarize_chunk, chunks))
-                
-                combined_notes = "\n\n".join(filter(None, mini_summaries))
-                
-                # Reduce Phase
-                final_html = generate_final_summary(combined_notes)
-            
-            return Response({"analysis": final_html})
-
+            completion = client.chat.completions.create(
+                model="sonar",
+                messages=[
+                    {"role": "system", "content": "With this document slide generate a detailed document , highlight the important topic and give real world examples if applicable, also recommend the topic related to it including the links , generate the response in html format."},
+                    {"role": "user", "content": pdf_text}
+                ]
+            )
+            return Response({"analysis": completion.choices[0].message.content})
         except Exception as e:
-            return Response({"error": f"Processing Error: {str(e)}"}, status=500)
+            return Response({"error": f"API Error: {str(e)}"}, status=500)
 
 
 class VoiceChatView(APIView):
-    """Backend endpoint for voice mode."""
+    """
+    Backend endpoint for voice mode.
+    Expects JSON: { "messages": [ { "role": "user", "content": "..." }, ... ] }
+    """
     @swagger_auto_schema(
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
@@ -221,7 +116,7 @@ class VoiceChatView(APIView):
 
         try:
             completion = client.chat.completions.create(
-                model="sonar-pro", 
+                model="sonar",  # or another supported chat model[web:8]
                 messages=messages
             )
             msg = completion.choices[0].message
